@@ -2,7 +2,6 @@
 #include <sourcemod>
 #include <sdkhooks>
 #include <sdktools>
-#include <glow>
 
 #define PLUGIN_VERSION "1.56"
 
@@ -10,8 +9,8 @@ ConVar bawnAnnounce, bawnAnnounceMode, bawnLeftNotify, bawnLeftCounter, cvarGame
 	cvarMaxIncapCount;
 
 int iAnnounce, iAnnounceMode, iMaxIncapCount, iBWEnt[MAXPLAYERS+1];
-bool bLeftNotify, bLeftCounter, bIsL4D1, bCheckFix, bLateLoad;
-char sGameMode[16], sMap[64];
+bool bLeftNotify, bLeftCounter, bCheckFix;
+char sGameMode[16];
 
 char sSurvivorNames[9][] =
 {
@@ -30,21 +29,6 @@ char sSurvivorModels[9][] =
 	"models/survivors/survivor_manager.mdl",
 	"models/survivors/survivor_adawong.mdl"
 };
-
-public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
-{
-	EngineVersion evRetVal = GetEngineVersion();
-	if (evRetVal != Engine_Left4Dead && evRetVal != Engine_Left4Dead2)
-	{
-		strcopy(error, err_max, "[BAWN] Plugin Supports L4D And L4D2 Only!");
-		return APLRes_SilentFailure;
-	}
-	
-	bIsL4D1 = (evRetVal == Engine_Left4Dead) ? true : false;
-	
-	bLateLoad = late;
-	return APLRes_Success;
-}
 
 public Plugin myinfo =
 {
@@ -88,12 +72,7 @@ public void OnPluginStart()
 	
 	HookEvent("revive_success", OnReviveSuccess);
 	HookEvent("player_death", OnPlayerDeath);
-	
-	if (!bIsL4D1)
-	{
-		HookEvent("defibrillator_used", OnDefibrillatorUsed);
-	}
-	
+	if ( IsL4D2() ) HookEvent("defibrillator_used", OnDefibrillatorUsed);	
 	HookEvent("round_start", OnRoundEvents);
 	HookEvent("round_end", OnRoundEvents);
 	HookEvent("mission_lost", OnRoundEvents);
@@ -103,22 +82,6 @@ public void OnPluginStart()
 	HookEvent("bot_player_replace", OnReplaceEvents);
 	
 	CreateTimer(0.1, BWOutlineCheck, _, TIMER_REPEAT);
-	
-	if (bLateLoad)
-	{
-		if (!bIsL4D1)
-		{
-			return;
-		}
-		
-		for (int i = 1; i <= MaxClients; i++)
-		{
-			if (IsClientInGame(i))
-			{
-				OnClientPutInServer(i);
-			}
-		}
-	}
 }
 
 public void OnBAWNCVarsChanged(ConVar cvar, const char[] sOldValue, const char[] sNewValue)
@@ -169,12 +132,6 @@ public void OnPluginEnd()
 		{
 			continue;
 		}
-		
-		if (bIsL4D1)
-		{
-			SDKUnhook(i, SDKHook_PostThinkPost, OnPostThinkPost);
-		}
-		
 		if (GetEntProp(i, Prop_Send, "m_currentReviveCount") >= iMaxIncapCount)
 		{
 			NotifyBWState(i, false);
@@ -182,81 +139,14 @@ public void OnPluginEnd()
 	}
 }
 
-public void OnClientPutInServer(int client)
-{
-	if (!bIsL4D1)
-	{
-		return;
-	}
-	
-	SDKHook(client, SDKHook_PostThinkPost, OnPostThinkPost);
-}
-
-public void OnPostThinkPost(int client)
-{
-	if (!IsValidClient(client))
-	{
-		return;
-	}
-	
-	if (IsValidEntRef(iBWEnt[client]))
-	{
-		if (GetClientTeam(client) != 2 || !IsPlayerAlive(client) || GetEntProp(client, Prop_Send, "m_currentReviveCount") < iMaxIncapCount)
-		{
-			return;
-		}
-		
-		int iGlowSequence, iGlowAnimTime;
-		float fGlowPoseParam[5], fGlowCycle;
-		
-		iGlowSequence = GetEntProp(client, Prop_Send, "m_nSequence");
-		iGlowAnimTime = GetEntProp(client, Prop_Send, "m_flAnimTime");
-		
-		for (int i = 0; i < 5; i++)
-		{
-			fGlowPoseParam[i] = GetEntPropFloat(client, Prop_Send, "m_flPoseParameter", i);
-		}
-		fGlowCycle = GetEntPropFloat(client, Prop_Send, "m_flCycle");
-		
-		SetEntProp(iBWEnt[client], Prop_Send, "m_nSequence", iGlowSequence);
-		SetEntProp(iBWEnt[client], Prop_Send, "m_flAnimTime", iGlowAnimTime);
-		
-		for (int i = 0; i < 5; i++)
-		{
-			SetEntPropFloat(iBWEnt[client], Prop_Send, "m_flPoseParameter", fGlowPoseParam[i], i);
-		}
-		SetEntPropFloat(iBWEnt[client], Prop_Send, "m_flCycle", fGlowCycle);
-	}
-}
-
 public void OnClientDisconnect(int client)
 {
-	if (bIsL4D1)
-	{
-		SDKUnhook(client, SDKHook_PostThinkPost, OnPostThinkPost);
-	}
-	else
-	{
-		NotifyBWState(client, false);
-	}
+	NotifyBWState(client, false);
 }
 
 public void OnMapStart()
-{
-	GetCurrentMap(sMap, sizeof(sMap));
-	
-	if (!bIsL4D1)
-	{
-		if (StrContains(sMap, "qe_", false) != -1 || StrContains(sMap, "l4d2_stadium", false) != -1 || StrEqual(sMap, "l4d2_vs_stadium2_riverwalk", false))
-		{
-			return;
-		}
-		
-		if (!IsModelPrecached("models/props_cemetery/grave_07.mdl"))
-		{
-			PrecacheModel("models/props_cemetery/grave_07.mdl", true);
-		}
-	}
+{ 
+	if (!IsModelPrecached("materials/sprites/skull_icon.vmt")) PrecacheModel("materials/sprites/skull_icon.vmt", true);
 }
 
 public void OnReviveSuccess(Event event, const char[] name, bool dontBroadcast)
@@ -525,143 +415,50 @@ void NotifyBWState(int client, bool bApply)
 {
 	if (bApply)
 	{
-		if (IsValidEnt(iBWEnt[client]))
+		if (IsValidEntRef(iBWEnt[client]))
 		{
 			return;
 		}
 		
-		if (bIsL4D1)
+		int iGraveEnt = CreateEntityByName("env_sprite"); //env_sprite_oriented
+		if (iGraveEnt != -1)
 		{
-			float fPos[3], fAng[3];
+			DispatchKeyValue(iGraveEnt, "model", "materials/sprites/skull_icon.vmt");
+			DispatchKeyValue(iGraveEnt, "fadescale", "1");
+			DispatchKeyValue(iGraveEnt, "fademindist", "20000");
+			DispatchKeyValue(iGraveEnt, "fademaxdist", "22000");
+			SetVariantString("!activator");
+			AcceptEntityInput(iGraveEnt, "SetParent", client);
+			SetVariantString("eyes");
+			AcceptEntityInput(iGraveEnt, "SetParentAttachment");
+			AcceptEntityInput(iGraveEnt, "ShowSprite");
+			char buffer[12];
+			Format(buffer, sizeof(buffer), "%i %i %i", GetRandomInt(0, 255), GetRandomInt(0, 255), GetRandomInt(0, 255));
+			DispatchKeyValue(iGraveEnt, "RenderColor", buffer);
+			DispatchKeyValue(iGraveEnt, "RenderAmt", "255");
+			TeleportEntity(iGraveEnt, view_as<float>({-3.0, 0.0, 6.0}), NULL_VECTOR, NULL_VECTOR);
+			DispatchSpawn(iGraveEnt);
 			
-			GetEntPropVector(client, Prop_Send, "m_vecOrigin", fPos);
-			GetEntPropVector(client, Prop_Send, "m_angRotation", fAng);
-			
-			char sModel[128];
-			GetEntPropString(client, Prop_Data, "m_ModelName", sModel, sizeof(sModel));
-			
-			int iGlowEnt = CreateEntityByName("prop_glowing_object");
-			if (iGlowEnt == -1)
-			{
-				NotifyBWState(client, true);
-			}
-			else
-			{
-				DispatchKeyValue(iGlowEnt, "model", sModel);
-				DispatchKeyValue(iGlowEnt, "GlowForTeam", "2");
-				
-				DispatchKeyValue(iGlowEnt, "fadescale", "1");
-				DispatchKeyValue(iGlowEnt, "fademindist", "20000");
-				DispatchKeyValue(iGlowEnt, "fadmaxdist", "22000");
-				
-				TeleportEntity(iGlowEnt, fPos, fAng, NULL_VECTOR);
-				DispatchSpawn(iGlowEnt);
-				ActivateEntity(iGlowEnt);
-				
-				SetEntityRenderFx(iGlowEnt, RENDERFX_FADE_FAST);
-				
-				SetVariantString("!activator");
-				AcceptEntityInput(iGlowEnt, "SetParent", client, iGlowEnt);
-				SetVariantString("!activator");
-				AcceptEntityInput(iGlowEnt, "SetAttached", client);
-				
-				iBWEnt[client] = EntIndexToEntRef(iGlowEnt);
-			}
+			iBWEnt[client] = EntIndexToEntRef(iGraveEnt);
 		}
 		else
 		{
-			if (StrContains(sMap, "qe_", false) == -1 && StrContains(sMap, "l4d2_stadium", false) == -1 && !StrEqual(sMap, "l4d2_vs_stadium2_riverwalk", false))
-			{
-				int iGraveEnt = CreateEntityByName("prop_dynamic_override");
-				if (iGraveEnt != -1)
-				{
-					SetEntityModel(iGraveEnt, "models/props_cemetery/grave_07.mdl");
-					
-					SetVariantString("!activator");
-					AcceptEntityInput(iGraveEnt, "SetParent", client, iGraveEnt);
-					SetVariantString("eyes");
-					AcceptEntityInput(iGraveEnt, "SetParentAttachment");
-					
-					TeleportEntity(iGraveEnt, view_as<float>({-3.0, 0.0, 6.0}), NULL_VECTOR, NULL_VECTOR);
-					DispatchSpawn(iGraveEnt);
-					
-					SetEntProp(iGraveEnt, Prop_Data, "m_iEFlags", 0);
-					
-					SetEntityRenderMode(iGraveEnt, RENDER_TRANSALPHA);
-					SetEntityRenderColor(iGraveEnt, _, _, _, 0);
-					
-					SetEntPropFloat(iGraveEnt, Prop_Send, "m_flModelScale", 0.25);
-					L4D2_SetEntGlow(iGraveEnt, L4D2Glow_Constant, 20000, 1, {255, 255, 255}, false);
-					
-					iBWEnt[client] = iGraveEnt;
-					SDKHook(iGraveEnt, SDKHook_SetTransmit, OnSetTransmit);
-				}
-				else
-				{
-					NotifyBWState(client, true);
-				}
-			}
-			else
-			{
-				L4D2_SetEntGlow(client, L4D2Glow_Constant, 20000, 1, {255, 255, 255}, false);
-			}
-		}
+			NotifyBWState(client, true);
+		}			
 	}
 	else
 	{
-		if (!bIsL4D1)
+		if (!IsValidEntRef(iBWEnt[client]))
 		{
-			if (StrContains(sMap, "qe_", false) != -1 || StrContains(sMap, "l4d2_stadium", false) != -1 || StrEqual(sMap, "l4d2_vs_stadium2_riverwalk", false))
-			{
-				L4D2_SetEntGlow(client, L4D2Glow_None, 0, 0, {0, 0, 0}, false);
-			}
-			else
-			{
-				if (!IsValidEnt(iBWEnt[client]))
-				{
-					return;
-				}
-				
-				L4D2_SetEntGlow(iBWEnt[client], L4D2Glow_None, 0, 0, {0, 0, 0}, false);
-				
-				SDKUnhook(iBWEnt[client], SDKHook_SetTransmit, OnSetTransmit);
-				
-				AcceptEntityInput(iBWEnt[client], "ClearParent");
-				AcceptEntityInput(iBWEnt[client], "Kill");
-				RemoveEdict(iBWEnt[client]);
-			}
+			return;
 		}
-		else
-		{
-			if (!IsValidEntRef(iBWEnt[client]))
-			{
-				return;
-			}
-			
-			AcceptEntityInput(iBWEnt[client], "Detach");
-			AcceptEntityInput(iBWEnt[client], "ClearParent");
-			
-			AcceptEntityInput(iBWEnt[client], "Kill");
-			RemoveEdict(iBWEnt[client]);
-		}
+	
+		AcceptEntityInput(iBWEnt[client], "HideSprite");
+		AcceptEntityInput(iBWEnt[client], "ClearParent");
+		AcceptEntityInput(iBWEnt[client], "Kill");
 		
 		iBWEnt[client] = 0;
 	}
-}
-
-public Action OnSetTransmit(int entity, int client)
-{
-	if (entity == iBWEnt[client])
-	{
-		return Plugin_Continue;
-	}
-	
-	if (GetClientTeam(client) != 2)
-	{
-		return Plugin_Handled;
-	}
-	
-	return Plugin_Continue;
 }
 
 int GetProperSurvivorsCount()
@@ -687,13 +484,15 @@ stock bool IsSurvivor(int client)
 	return (IsValidClient(client) && GetClientTeam(client) == 2);
 }
 
-stock bool IsValidEnt(int entity)
-{
-	return (entity > 0 && IsValidEntity(entity) && IsValidEdict(entity));
-}
-
 stock bool IsValidEntRef(int entity)
 {
-	return (entity && EntRefToEntIndex(entity) != INVALID_ENT_REFERENCE);
+	if( entity && EntRefToEntIndex(entity) != INVALID_ENT_REFERENCE )
+		return true;
+	return false;
 }
 
+stock bool IsL4D2()
+{
+	EngineVersion engine = GetEngineVersion();
+	return ( engine == Engine_Left4Dead2 );
+}
